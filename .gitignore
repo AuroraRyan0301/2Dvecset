@@ -1,0 +1,33 @@
+# reference repos + downloaded checkpoints (~33GB) — never commit
+_refsrc/
+
+# checkpoints / weights
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+ckpts/
+checkpoints/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.ipynb_checkpoints/
+
+# generated outputs
+outputs/
+samples/
+*.mp4
+*.log
+
+# env / editor
+.venv/
+venv/
+.env
+.vscode/
+.idea/
+.DS_Store
