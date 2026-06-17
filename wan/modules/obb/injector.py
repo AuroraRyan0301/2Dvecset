@@ -27,12 +27,13 @@ def mellin(x, bands, eps=1e-3):
 
 
 class OBBTokenEmbedder(nn.Module):
-    """Flat OBB tokens -> (N, dim): table-free id + Mellin(depth) + optional appearance."""
+    """Flat OBB tokens -> (N, dim): id + Mellin(depth) + world-frame face normal + optional appearance."""
 
     def __init__(self, dim, d_app, id_freqs=64, id_scale=8.0, depth_bands=8):
         super().__init__()
         self.depth_bands = depth_bands
         self.depth_proj = nn.Linear(2 * depth_bands, dim)            # depth scale -> Mellin
+        self.normal_proj = nn.Linear(3, dim)                         # world-frame face normal (raw unit 3-vec)
         self.register_buffer("id_freqs", torch.randn(id_freqs) * id_scale, persistent=True)
         self.id_proj = nn.Linear(2 * id_freqs, dim)                  # table-free OBB id (random Fourier)
         self.app_proj = nn.Linear(d_app, dim)
@@ -49,6 +50,7 @@ class OBBTokenEmbedder(nn.Module):
                           self.app_proj(tok.appearance.to(dt)), self.null_app.to(dt))
         e = (self.id_proj(self._id_feat(tok.instance_id, dt))
              + self.depth_proj(mellin(tok.depth.to(dt), self.depth_bands))
+             + self.normal_proj(tok.normal.to(dt))
              + app)
         return self.norm(e)                                          # (N, dim)
 

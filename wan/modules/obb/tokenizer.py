@@ -20,6 +20,7 @@ class OBBTokens:
     """Flat (variable-length) OBB tokens for one scene. N = total tokens over all T frames."""
     pos: torch.Tensor          # (N, 3) float (t, h, w) fractional grid coords (shared RoPE)
     depth: torch.Tensor        # (N,)   float camera-z entry depth (scale -> Mellin)
+    normal: torch.Tensor       # (N, 3) float world-frame face normal (unit; per-pixel surface orientation)
     instance_id: torch.Tensor  # (N,)   long  OBB index (table-free RFF id)
     appearance: torch.Tensor   # (N, D_app) float
     app_given: torch.Tensor    # (N,)   bool  True = appearance provided (else null_app)
@@ -51,6 +52,7 @@ def build_obb_tokens(scene: Scene, latent_hw, d_app: int, cond_scale: int = 8) -
                 "pos": torch.stack([torch.full((M,), float(t), device=dev),
                                     uvf[:, 1], uvf[:, 0]], -1),         # (t, h=v, w=u) fractional
                 "depth": hit["depth"],
+                "normal": hit["normal"],                               # (M,3) world-frame face normal
                 "instance_id": torch.full((M,), oi, device=dev, dtype=torch.long),
                 "appearance": app_vec[None].expand(M, d_app),
                 "app_given": torch.full((M,), has_app, device=dev, dtype=torch.bool),
@@ -68,6 +70,7 @@ def build_obb_tokens(scene: Scene, latent_hw, d_app: int, cond_scale: int = 8) -
     return OBBTokens(
         pos=cat("pos", 3),
         depth=cat("depth"),
+        normal=cat("normal", 3),
         instance_id=cat("instance_id").long(),
         appearance=cat("appearance", d_app),
         app_given=cat("app_given").bool(),

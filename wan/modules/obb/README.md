@@ -15,21 +15,31 @@ train.
 | `tokenizer.py` | flat occlusion-stack tokens + `cu` (cu_seqlens): pos(t,h,w), depth, id, appearance |
 | `rope.py` `heads.py` `losses.py` `data.py` | continuous 3D RoPE; self-tracking head; losses; synthetic data + GT |
 
-## Per-pixel token (minimal, by design)
+## Per-pixel token
 
 ```
-e = id_proj(RandFourier(id)) + depth_proj(Mellin(depth)) + (appearance | null_app)   → LayerNorm
+e = id_proj(RandFourier(id)) + depth_proj(Mellin(depth)) + normal_proj(world_normal)
+    + (appearance | null_app)                                                          → LayerNorm
 ```
-Why so small: in the camera frame the entry point = `depth · ray_dir`, and `ray_dir` is fixed by the
-pixel = the **(t,h,w) RoPE position**; the only non-redundant per-pixel geometry is **depth** (scale →
-**Mellin** = Fourier(log), no normalization). Direction lives in RoPE. World-frame coords dropped
-(recoverable by the backbone from depth + camera Plücker; re-add if motion-disentangling needs it).
+- **id** — table-free random-Fourier of the OBB index (no cap, metric-free).
+- **depth** — camera-z entry depth; scale quantity → **Mellin** = Fourier(log), no normalization.
+- **world_normal** — WORLD-frame unit normal of the box face the ray enters (raw 3-vector; S² direction,
+  NOT angle/Fourier). Per-pixel surface orientation (a G-buffer normal channel) that depth alone lacks:
+  gives pixels a sense of *direction*, not just *distance*. The camera Plücker (video side) is busy
+  carrying camera pose, so the per-face orientation is bound directly onto the footprint tokens instead
+  of asking the backbone to infer it across the two token streams. NOTE: discontinuous at box edges
+  (normal jumps between faces) — inherent to boxes.
+- **appearance** — optional per-OBB latent; `null_app` (learned) when not given (CFG).
+
+Position (direction + screen location) lives in the (t,h,w) RoPE, not in the feature. World-frame
+*coords* were dropped (recoverable by the backbone from depth + camera Plücker); the world *normal* is
+kept because it is per-pixel surface orientation, not recoverable from a flat footprint.
 
 ## Flow
 
 ```
-OBB ─project(cond_scale)→ covered pixels {pos(t,h,w fractional), depth}   (flat tokens + cu_seqlens)
-        │ ★OBBTokenEmbedder   e = id(RFF) + Mellin(depth) + appearance|null
+OBB ─project(cond_scale)→ covered pixels {pos(t,h,w frac), depth, world_normal}   (flat tokens + cu)
+        │ ★OBBTokenEmbedder   e = id(RFF) + Mellin(depth) + normal + appearance|null
         ▼  obb_emb (N, dim)
         │ ★OBBCrossAttention (flash varlen)  Q=video(integer pos), K/V=obb(fractional pos),
         │   shared (t,h,w) RoPE, block-diagonal per frame (cu_q / cu_k), zero-init out

@@ -24,7 +24,10 @@ def project_obb_frame(obb: OBB, cam: Camera, frame: int, latent_hw, cond_scale: 
     Returns dict with:
       'uv'      (M, 2) long  latent CELL coords [u, v]            (for GT rasterization)
       'uv_frac' (M, 2) float fractional latent coords [u, v] = (cond_pixel + 0.5) / cond_scale
-      'depth'   (M,)   float camera-z entry depth.
+      'depth'   (M,)   float camera-z entry depth
+      'normal'  (M, 3) float WORLD-frame normal of the OBB face the ray enters (unit; per pixel, so
+                       different faces of one box carry different normals -> per-pixel surface
+                       orientation, a G-buffer normal channel that depth alone lacks).
     None if the box does not project into the frame.
     """
     Hl, Wl = latent_hw
@@ -70,15 +73,20 @@ def project_obb_frame(obb: OBB, cam: Camera, frame: int, latent_hw, cond_scale: 
     inv_d = 1.0 / torch.where(d_local.abs() < eps, torch.full_like(d_local, eps), d_local)
     t1 = (-half[None] - o_local[None]) * inv_d
     t2 = (half[None] - o_local[None]) * inv_d
-    t_near = torch.minimum(t1, t2).max(dim=-1).values
+    tmin = torch.minimum(t1, t2)
+    t_near = tmin.max(dim=-1).values
     t_far = torch.maximum(t1, t2).min(dim=-1).values
+    k_star = tmin.argmax(dim=-1)                                       # (N,) entry-face box axis
     depth = (t_near.clamp_min(0)[:, None] * d_cam)[:, 2]               # camera-z at entry
     hit = (t_near <= t_far) & (t_far > 0) & (depth > 0)
     if hit.sum() == 0:
         return None
 
     su, sv, depth = su[hit], sv[hit], depth[hit]
+    ks, dl = k_star[hit], d_local[hit]                                 # entry axis + ray dir (local)
+    sgn = -torch.sign(dl.gather(1, ks[:, None]).squeeze(1))            # outward face faces the ray
+    normal = sgn[:, None] * R_box[:, ks].T                            # (M,3) world-frame face normal (unit)
     uv_frac = torch.stack([(su.float() + 0.5) / cond_scale,
                            (sv.float() + 0.5) / cond_scale], -1)       # (M,2) fractional latent coords
     uv = torch.stack([su // cond_scale, sv // cond_scale], -1).long()  # (M,2) latent cell (for GT)
-    return {"uv": uv, "uv_frac": uv_frac, "depth": depth}
+    return {"uv": uv, "uv_frac": uv_frac, "depth": depth, "normal": normal}
